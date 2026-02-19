@@ -1,0 +1,16 @@
+{
+  "name": "bot-bateponto",
+  "version": "1.0.0",
+  "description": "Bot de bate ponto Discord",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "discord.js": "^14.0.0",
+    "dotenv": "^16.0.0",
+    "sqlite3": "^5.0.0"
+  }
+}
