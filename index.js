@@ -21,7 +21,9 @@ client.once(Events.ClientReady, async () => {
   console.log(`🔥 Bot online como ${client.user.tag}`);
 
   try {
-    const canal = await client.channels.fetch('1471917439750246483');
+    const canal = await client.channels.fetch(process.env.PAINEL_CHANNEL_ID);
+
+    if (!canal) return console.log("Canal do painel não encontrado.");
 
     const embed = new EmbedBuilder()
       .setColor("#5865F2")
@@ -56,7 +58,6 @@ client.once(Events.ClientReady, async () => {
 // ===============================
 client.on(Events.InteractionCreate, async interaction => {
 
-  // Slash Command
   if (interaction.isChatInputCommand()) {
     if (interaction.commandName === 'relatorio') {
       return relatorio.execute(interaction);
@@ -71,6 +72,8 @@ client.on(Events.InteractionCreate, async interaction => {
   // 🟢 INICIAR
   // ===============================
   if (interaction.customId === 'iniciar') {
+
+    await interaction.deferReply({ ephemeral: true });
 
     const agora = Date.now();
 
@@ -87,14 +90,15 @@ client.on(Events.InteractionCreate, async interaction => {
       `)
       .setTimestamp();
 
-    await interaction.reply({ embeds: [embed], ephemeral: true });
+    await interaction.editReply({ embeds: [embed] });
   }
-
 
   // ===============================
   // 🔴 FINALIZAR
   // ===============================
   if (interaction.customId === 'finalizar') {
+
+    await interaction.deferReply({ ephemeral: true });
 
     db.get(
       "SELECT rowid, inicio FROM pontos WHERE userId = ? ORDER BY rowid DESC LIMIT 1",
@@ -102,9 +106,8 @@ client.on(Events.InteractionCreate, async interaction => {
       async (err, row) => {
 
         if (!row) {
-          return interaction.reply({
-            content: "❌ Você não iniciou nenhum ponto.",
-            ephemeral: true
+          return interaction.editReply({
+            content: "❌ Você não iniciou nenhum ponto."
           });
         }
 
@@ -117,11 +120,9 @@ client.on(Events.InteractionCreate, async interaction => {
           [tempo, row.rowid]
         );
 
-        // Converter tempo
         const horas = Math.floor(tempo / 3600000);
         const minutos = Math.floor((tempo % 3600000) / 60000);
 
-        // Resposta privada
         const embedUser = new EmbedBuilder()
           .setColor("#ED4245")
           .setTitle("🔴 Ponto Finalizado")
@@ -130,32 +131,38 @@ client.on(Events.InteractionCreate, async interaction => {
           `)
           .setTimestamp();
 
-        await interaction.reply({ embeds: [embedUser], ephemeral: true });
+        await interaction.editReply({ embeds: [embedUser] });
 
-        // LOG BONITO
-        const canalLog = await client.channels.fetch(process.env.LOG_CHANNEL_ID);
+        // ===== LOG =====
+        try {
+          const canalLog = await client.channels.fetch(process.env.LOG_CHANNEL_ID);
 
-        const embedLog = new EmbedBuilder()
-          .setColor("#2B2D31")
-          .setThumbnail(interaction.user.displayAvatarURL({ size: 512 }))
-          .setTitle("📋 Registro Diário de Ponto")
-          .setDescription(`
+          if (!canalLog) return;
+
+          const embedLog = new EmbedBuilder()
+            .setColor("#2B2D31")
+            .setThumbnail(interaction.user.displayAvatarURL({ size: 512 }))
+            .setTitle("📋 Registro Diário de Ponto")
+            .setDescription(`
 👤 **${interaction.user.username}**
 
 🟢 Iniciou: <t:${Math.floor(inicio/1000)}:T>  
 🔴 Finalizou: <t:${Math.floor(fim/1000)}:T>  
 
 ⏱ **Total trabalhado hoje: ${horas}h ${minutos}m**
-          `)
-          .setFooter({ text: "Sistema automático de controle" })
-          .setTimestamp();
+            `)
+            .setFooter({ text: "Sistema automático de controle" })
+            .setTimestamp();
 
-        await canalLog.send({ embeds: [embedLog] });
+          await canalLog.send({ embeds: [embedLog] });
 
+        } catch (logError) {
+          console.error("Erro ao enviar log:", logError);
+        }
       }
     );
   }
 
 });
-console.log("TOKEN:", process.env.TOKEN);
+
 client.login(process.env.TOKEN);
