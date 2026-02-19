@@ -22,8 +22,7 @@ client.once(Events.ClientReady, async () => {
 
   try {
     const canal = await client.channels.fetch(process.env.PAINEL_CHANNEL_ID);
-
-    if (!canal) return console.log("Canal do painel não encontrado.");
+    if (!canal) return console.log("❌ Canal do painel não encontrado.");
 
     const embed = new EmbedBuilder()
       .setColor("#5865F2")
@@ -33,8 +32,8 @@ client.once(Events.ClientReady, async () => {
 🟢 Iniciar → Começa a contar  
 🔴 Finalizar → Encerra o expediente  
 
-🎯 **Meta semanal:** 25 horas  
-⚠️ **Mínimo obrigatório:** 20 horas  
+🎯 Meta semanal: 25h  
+⚠️ Mínimo obrigatório: 20h  
 📅 Semana válida: Domingo → Sábado
       `)
       .setThumbnail(client.user.displayAvatarURL())
@@ -79,18 +78,25 @@ client.on(Events.InteractionCreate, async interaction => {
 
     db.run(
       "INSERT INTO pontos (userId, inicio, total) VALUES (?, ?, ?)",
-      [userId, agora, 0]
+      [userId, agora, 0],
+      async (err) => {
+
+        if (err) {
+          console.error(err);
+          return interaction.editReply({
+            content: "❌ Erro ao iniciar ponto."
+          });
+        }
+
+        const embed = new EmbedBuilder()
+          .setColor("#57F287")
+          .setTitle("🟢 Ponto Iniciado")
+          .setDescription(`🕒 Início: <t:${Math.floor(agora/1000)}:T>`)
+          .setTimestamp();
+
+        await interaction.editReply({ embeds: [embed] });
+      }
     );
-
-    const embed = new EmbedBuilder()
-      .setColor("#57F287")
-      .setTitle("🟢 Ponto Iniciado")
-      .setDescription(`
-🕒 Início: <t:${Math.floor(agora/1000)}:T>
-      `)
-      .setTimestamp();
-
-    await interaction.editReply({ embeds: [embed] });
   }
 
   // ===============================
@@ -104,6 +110,13 @@ client.on(Events.InteractionCreate, async interaction => {
       "SELECT rowid, inicio FROM pontos WHERE userId = ? ORDER BY rowid DESC LIMIT 1",
       [userId],
       async (err, row) => {
+
+        if (err) {
+          console.error(err);
+          return interaction.editReply({
+            content: "❌ Erro interno no banco de dados."
+          });
+        }
 
         if (!row) {
           return interaction.editReply({
@@ -126,9 +139,7 @@ client.on(Events.InteractionCreate, async interaction => {
         const embedUser = new EmbedBuilder()
           .setColor("#ED4245")
           .setTitle("🔴 Ponto Finalizado")
-          .setDescription(`
-⏱ Você trabalhou **${horas}h ${minutos}m** hoje.
-          `)
+          .setDescription(`⏱ Você trabalhou **${horas}h ${minutos}m** hoje.`)
           .setTimestamp();
 
         await interaction.editReply({ embeds: [embedUser] });
@@ -136,7 +147,6 @@ client.on(Events.InteractionCreate, async interaction => {
         // ===== LOG =====
         try {
           const canalLog = await client.channels.fetch(process.env.LOG_CHANNEL_ID);
-
           if (!canalLog) return;
 
           const embedLog = new EmbedBuilder()
@@ -149,15 +159,15 @@ client.on(Events.InteractionCreate, async interaction => {
 🟢 Iniciou: <t:${Math.floor(inicio/1000)}:T>  
 🔴 Finalizou: <t:${Math.floor(fim/1000)}:T>  
 
-⏱ **Total trabalhado hoje: ${horas}h ${minutos}m**
+⏱ Total: ${horas}h ${minutos}m
             `)
             .setFooter({ text: "Sistema automático de controle" })
             .setTimestamp();
 
           await canalLog.send({ embeds: [embedLog] });
 
-        } catch (logError) {
-          console.error("Erro ao enviar log:", logError);
+        } catch (errorLog) {
+          console.error("Erro ao enviar log:", errorLog);
         }
       }
     );
