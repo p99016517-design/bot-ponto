@@ -22,22 +22,17 @@ client.once(Events.ClientReady, async () => {
 
   try {
     const canal = await client.channels.fetch(process.env.PAINEL_CHANNEL_ID);
-    if (!canal) return console.log("❌ Canal do painel não encontrado.");
+    if (!canal) return console.log("Canal do painel não encontrado.");
 
     const embed = new EmbedBuilder()
       .setColor("#5865F2")
       .setTitle("🕒 Sistema Oficial de Bate Ponto")
       .setDescription(`
-📌 **Como funciona:**
-🟢 Iniciar → Começa a contar  
-🔴 Finalizar → Encerra o expediente  
-
-🎯 Meta semanal: 25h  
-⚠️ Mínimo obrigatório: 20h  
-📅 Semana válida: Domingo → Sábado
+🟢 Iniciar  
+⏸ Pausar  
+▶ Retomar  
+🔴 Finalizar
       `)
-      .setThumbnail(client.user.displayAvatarURL())
-      .setFooter({ text: "Sistema automático • Controle interno" })
       .setTimestamp();
 
     await canal.send({
@@ -47,7 +42,7 @@ client.once(Events.ClientReady, async () => {
 
     console.log("✅ Painel enviado!");
   } catch (err) {
-    console.error("❌ Erro ao enviar painel:", err);
+    console.error("Erro ao enviar painel:", err);
   }
 });
 
@@ -56,12 +51,6 @@ client.once(Events.ClientReady, async () => {
 // 🎛 INTERAÇÕES
 // ===============================
 client.on(Events.InteractionCreate, async interaction => {
-
-  if (interaction.isChatInputCommand()) {
-    if (interaction.commandName === 'relatorio') {
-      return relatorio.execute(interaction);
-    }
-  }
 
   if (!interaction.isButton()) return;
 
@@ -80,21 +69,67 @@ client.on(Events.InteractionCreate, async interaction => {
       "INSERT INTO pontos (userId, inicio, total) VALUES (?, ?, ?)",
       [userId, agora, 0],
       async (err) => {
-
         if (err) {
           console.error(err);
-          return interaction.editReply({
-            content: "❌ Erro ao iniciar ponto."
-          });
+          return interaction.editReply({ content: "❌ Erro ao iniciar ponto." });
         }
 
-        const embed = new EmbedBuilder()
-          .setColor("#57F287")
-          .setTitle("🟢 Ponto Iniciado")
-          .setDescription(`🕒 Início: <t:${Math.floor(agora/1000)}:T>`)
-          .setTimestamp();
+        await interaction.editReply({ content: "🟢 Ponto iniciado com sucesso!" });
+      }
+    );
+  }
 
-        await interaction.editReply({ embeds: [embed] });
+  // ===============================
+  // ⏸ PAUSAR
+  // ===============================
+  if (interaction.customId === 'pausar') {
+
+    await interaction.deferReply({ ephemeral: true });
+
+    db.get(
+      "SELECT rowid, inicio FROM pontos WHERE userId = ? ORDER BY rowid DESC LIMIT 1",
+      [userId],
+      async (err, row) => {
+
+        if (err || !row) {
+          return interaction.editReply({ content: "❌ Nenhum ponto ativo para pausar." });
+        }
+
+        const agora = Date.now();
+        const tempoAtual = agora - row.inicio;
+
+        db.run(
+          "UPDATE pontos SET total = ?, inicio = NULL WHERE rowid = ?",
+          [tempoAtual, row.rowid]
+        );
+
+        await interaction.editReply({ content: "⏸ Ponto pausado." });
+      }
+    );
+  }
+
+  // ===============================
+  // ▶ RETOMAR
+  // ===============================
+  if (interaction.customId === 'retomar') {
+
+    await interaction.deferReply({ ephemeral: true });
+
+    db.get(
+      "SELECT rowid, total FROM pontos WHERE userId = ? ORDER BY rowid DESC LIMIT 1",
+      [userId],
+      async (err, row) => {
+
+        if (err || !row || row.inicio !== null) {
+          return interaction.editReply({ content: "❌ Nenhum ponto pausado." });
+        }
+
+        db.run(
+          "UPDATE pontos SET inicio = ? WHERE rowid = ?",
+          [Date.now(), row.rowid]
+        );
+
+        await interaction.editReply({ content: "▶ Ponto retomado." });
       }
     );
   }
@@ -107,68 +142,31 @@ client.on(Events.InteractionCreate, async interaction => {
     await interaction.deferReply({ ephemeral: true });
 
     db.get(
-      "SELECT rowid, inicio FROM pontos WHERE userId = ? ORDER BY rowid DESC LIMIT 1",
+      "SELECT rowid, inicio, total FROM pontos WHERE userId = ? ORDER BY rowid DESC LIMIT 1",
       [userId],
       async (err, row) => {
 
-        if (err) {
-          console.error(err);
-          return interaction.editReply({
-            content: "❌ Erro interno no banco de dados."
-          });
+        if (err || !row) {
+          return interaction.editReply({ content: "❌ Nenhum ponto iniciado." });
         }
 
-        if (!row) {
-          return interaction.editReply({
-            content: "❌ Você não iniciou nenhum ponto."
-          });
-        }
+        let tempoTotal = row.total || 0;
 
-        const fim = Date.now();
-        const inicio = row.inicio;
-        const tempo = fim - inicio;
+        if (row.inicio) {
+          tempoTotal += Date.now() - row.inicio;
+        }
 
         db.run(
           "UPDATE pontos SET total = ? WHERE rowid = ?",
-          [tempo, row.rowid]
+          [tempoTotal, row.rowid]
         );
 
-        const horas = Math.floor(tempo / 3600000);
-        const minutos = Math.floor((tempo % 3600000) / 60000);
+        const horas = Math.floor(tempoTotal / 3600000);
+        const minutos = Math.floor((tempoTotal % 3600000) / 60000);
 
-        const embedUser = new EmbedBuilder()
-          .setColor("#ED4245")
-          .setTitle("🔴 Ponto Finalizado")
-          .setDescription(`⏱ Você trabalhou **${horas}h ${minutos}m** hoje.`)
-          .setTimestamp();
-
-        await interaction.editReply({ embeds: [embedUser] });
-
-        // ===== LOG =====
-        try {
-          const canalLog = await client.channels.fetch(process.env.LOG_CHANNEL_ID);
-          if (!canalLog) return;
-
-          const embedLog = new EmbedBuilder()
-            .setColor("#2B2D31")
-            .setThumbnail(interaction.user.displayAvatarURL({ size: 512 }))
-            .setTitle("📋 Registro Diário de Ponto")
-            .setDescription(`
-👤 **${interaction.user.username}**
-
-🟢 Iniciou: <t:${Math.floor(inicio/1000)}:T>  
-🔴 Finalizou: <t:${Math.floor(fim/1000)}:T>  
-
-⏱ Total: ${horas}h ${minutos}m
-            `)
-            .setFooter({ text: "Sistema automático de controle" })
-            .setTimestamp();
-
-          await canalLog.send({ embeds: [embedLog] });
-
-        } catch (errorLog) {
-          console.error("Erro ao enviar log:", errorLog);
-        }
+        await interaction.editReply({
+          content: `🔴 Ponto finalizado. Total trabalhado: ${horas}h ${minutos}m`
+        });
       }
     );
   }
