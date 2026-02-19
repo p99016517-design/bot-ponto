@@ -1,19 +1,19 @@
 const sqlite3 = require('sqlite3').verbose();
 
-const db = new sqlite3.Database('./pontos.db');
+const db = new sqlite3.Database('./database.sqlite', (err) => {
+  if (err) {
+    console.error("Erro ao conectar ao banco:", err);
+  } else {
+    console.log("✅ Banco de dados conectado.");
 
-db.serialize(() => {
-  db.run(`
-    CREATE TABLE IF NOT EXISTS registros (
-      userId TEXT,
-      inicio INTEGER,
-      fim INTEGER,
-      pausado INTEGER,
-      tempoPausa INTEGER DEFAULT 0,
-      total INTEGER,
-      semana INTEGER
-    )
-  `);
+    db.run(`
+      CREATE TABLE IF NOT EXISTS pontos (
+        userId TEXT,
+        inicio INTEGER,
+        total INTEGER
+      )
+    `);
+  }
 });
 
 module.exports = db;
