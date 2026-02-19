@@ -157,5 +157,5 @@ client.on(Events.InteractionCreate, async interaction => {
   }
 
 });
-
+console.log("TOKEN:", process.env.TOKEN);
 client.login(process.env.TOKEN);
