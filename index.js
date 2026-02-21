@@ -14,6 +14,7 @@ const client = new Client({
   intents: [GatewayIntentBits.Guilds]
 });
 
+
 // ===============================
 // 🚀 BOT ONLINE
 // ===============================
@@ -57,6 +58,7 @@ client.once(Events.ClientReady, async () => {
 // ===============================
 client.on(Events.InteractionCreate, async interaction => {
 
+  // ===== SLASH COMMAND =====
   if (interaction.isChatInputCommand()) {
     if (interaction.commandName === 'relatorio') {
       return relatorio.execute(interaction);
@@ -74,30 +76,45 @@ client.on(Events.InteractionCreate, async interaction => {
 
     await interaction.deferReply({ ephemeral: true });
 
-    const agora = Date.now();
-
-    db.run(
-      "INSERT INTO pontos (userId, inicio, total) VALUES (?, ?, ?)",
-      [userId, agora, 0],
-      async (err) => {
+    db.get(
+      "SELECT * FROM pontos WHERE userId = ? AND fim IS NULL",
+      [userId],
+      (err, row) => {
 
         if (err) {
           console.error(err);
-          return interaction.editReply({
-            content: "❌ Erro ao iniciar ponto."
-          });
+          return interaction.editReply("Erro no banco de dados.");
         }
 
-        const embed = new EmbedBuilder()
-          .setColor("#57F287")
-          .setTitle("🟢 Ponto Iniciado")
-          .setDescription(`🕒 Início: <t:${Math.floor(agora/1000)}:T>`)
-          .setTimestamp();
+        if (row) {
+          return interaction.editReply("❌ Você já tem um ponto aberto.");
+        }
 
-        await interaction.editReply({ embeds: [embed] });
+        const agora = Date.now();
+
+        db.run(
+          "INSERT INTO pontos (userId, inicio) VALUES (?, ?)",
+          [userId, agora],
+          (err) => {
+
+            if (err) {
+              console.error(err);
+              return interaction.editReply("Erro ao iniciar ponto.");
+            }
+
+            const embed = new EmbedBuilder()
+              .setColor("#57F287")
+              .setTitle("🟢 Ponto Iniciado")
+              .setDescription(`🕒 Início: <t:${Math.floor(agora/1000)}:T>`)
+              .setTimestamp();
+
+            interaction.editReply({ embeds: [embed] });
+          }
+        );
       }
     );
   }
+
 
   // ===============================
   // 🔴 FINALIZAR
@@ -107,68 +124,71 @@ client.on(Events.InteractionCreate, async interaction => {
     await interaction.deferReply({ ephemeral: true });
 
     db.get(
-      "SELECT rowid, inicio FROM pontos WHERE userId = ? ORDER BY rowid DESC LIMIT 1",
+      "SELECT * FROM pontos WHERE userId = ? AND fim IS NULL",
       [userId],
       async (err, row) => {
 
         if (err) {
           console.error(err);
-          return interaction.editReply({
-            content: "❌ Erro interno no banco de dados."
-          });
+          return interaction.editReply("Erro interno no banco.");
         }
 
         if (!row) {
-          return interaction.editReply({
-            content: "❌ Você não iniciou nenhum ponto."
-          });
+          return interaction.editReply("❌ Você não tem ponto aberto.");
         }
 
-        const fim = Date.now();
-        const inicio = row.inicio;
-        const tempo = fim - inicio;
+        const agora = Date.now();
+        const tempo = agora - row.inicio;
 
         db.run(
-          "UPDATE pontos SET total = ? WHERE rowid = ?",
-          [tempo, row.rowid]
-        );
+          "UPDATE pontos SET fim = ?, total = ? WHERE id = ?",
+          [agora, tempo, row.id],
+          async (err) => {
 
-        const horas = Math.floor(tempo / 3600000);
-        const minutos = Math.floor((tempo % 3600000) / 60000);
+            if (err) {
+              console.error(err);
+              return interaction.editReply("Erro ao finalizar ponto.");
+            }
 
-        const embedUser = new EmbedBuilder()
-          .setColor("#ED4245")
-          .setTitle("🔴 Ponto Finalizado")
-          .setDescription(`⏱ Você trabalhou **${horas}h ${minutos}m** hoje.`)
-          .setTimestamp();
+            const horas = Math.floor(tempo / 3600000);
+            const minutos = Math.floor((tempo % 3600000) / 60000);
 
-        await interaction.editReply({ embeds: [embedUser] });
+            const embedUser = new EmbedBuilder()
+              .setColor("#ED4245")
+              .setTitle("🔴 Ponto Finalizado")
+              .setDescription(`⏱ Você trabalhou **${horas}h ${minutos}m**.`)
+              .setTimestamp();
 
-        // ===== LOG =====
-        try {
-          const canalLog = await client.channels.fetch(process.env.LOG_CHANNEL_ID);
-          if (!canalLog) return;
+            await interaction.editReply({ embeds: [embedUser] });
 
-          const embedLog = new EmbedBuilder()
-            .setColor("#2B2D31")
-            .setThumbnail(interaction.user.displayAvatarURL({ size: 512 }))
-            .setTitle("📋 Registro Diário de Ponto")
-            .setDescription(`
+            // ===== LOG =====
+            try {
+              const canalLog = await client.channels.fetch(process.env.LOG_CHANNEL_ID);
+              if (!canalLog) return;
+
+              const embedLog = new EmbedBuilder()
+                .setColor("#2B2D31")
+                .setThumbnail(interaction.user.displayAvatarURL({ size: 512 }))
+                .setTitle("📋 Registro Diário de Ponto")
+                .setDescription(`
 👤 **${interaction.user.username}**
 
-🟢 Iniciou: <t:${Math.floor(inicio/1000)}:T>  
-🔴 Finalizou: <t:${Math.floor(fim/1000)}:T>  
+🟢 Iniciou: <t:${Math.floor(row.inicio/1000)}:T>  
+🔴 Finalizou: <t:${Math.floor(agora/1000)}:T>  
 
 ⏱ Total: ${horas}h ${minutos}m
-            `)
-            .setFooter({ text: "Sistema automático de controle" })
-            .setTimestamp();
+                `)
+                .setFooter({ text: "Sistema automático de controle" })
+                .setTimestamp();
 
-          await canalLog.send({ embeds: [embedLog] });
+              await canalLog.send({ embeds: [embedLog] });
 
-        } catch (errorLog) {
-          console.error("Erro ao enviar log:", errorLog);
-        }
+            } catch (errorLog) {
+              console.error("Erro ao enviar log:", errorLog);
+            }
+
+          }
+        );
       }
     );
   }

@@ -8,8 +8,10 @@ const db = new sqlite3.Database('./database.sqlite', (err) => {
 
     db.run(`
       CREATE TABLE IF NOT EXISTS pontos (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
         userId TEXT,
         inicio INTEGER,
+        fim INTEGER,
         total INTEGER
       )
     `);
